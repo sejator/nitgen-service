@@ -1,0 +1,9 @@
+# App
+DEBUG=True
+WEBHOOK_URLS=https://example1.com,https://example2.com
+SECRET_KEY=xxx
+TELEGRAM_TOKEN=xxx
+TELEGRAM_CHAT_ID=xxx
+DB_PATH=/path/to
+DB_FILE=NITGENDBAC.mdb
+DB_PASS=xxx
