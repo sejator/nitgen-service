@@ -161,7 +161,7 @@ def get_new_fingerprint_data(last_checked_timestamp: datetime) -> datetime:
                 fingerprint_data, separators=(",", ":"), sort_keys=True
             )
             send_to_webhook(payload)
-            send_to_telegram(f"<pre>{payload}</pre>")
+            send_to_telegram(f"<b>WEBHOOK NITGEN</b>\n\n<pre>{payload}</pre>")
 
         save_last_checked_timestamp(latest_timestamp)
         conn.close()  # Close connection
@@ -200,7 +200,7 @@ def read_mdb_file():
         indent=2,
     )
     logger.info(service)
-    send_to_telegram(f"<pre>{service}</pre>")
+    send_to_telegram(f"<b>SERVICE NITGEN</b>\n\n<pre>{service}</pre>")
 
     try:
         while True:
