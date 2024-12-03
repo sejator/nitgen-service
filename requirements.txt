@@ -1,5 +1,8 @@
+antiorm==1.2.1
 certifi==2024.8.30
 charset-normalizer==3.4.0
+db==0.1.1
+db-sqlite3==0.0.1
 idna==3.10
 pyodbc==5.2.0
 python-dotenv==1.0.1

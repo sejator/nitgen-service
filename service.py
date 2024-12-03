@@ -12,9 +12,13 @@ import hmac
 import hashlib
 import platform
 import getpass
+import sqlite3
 
 # Load environment variables
 load_dotenv()
+# buat folder db
+if not os.path.exists("db"):
+    os.makedirs("db")
 
 # Webhook and Telegram configurations
 WEBHOOK_URLS = (
@@ -25,10 +29,12 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Database configurations
+DATABASE_SQLITE = os.path.join("db", "finger_log.db")
 DB_PATH = os.getenv("DB_PATH", "")
 DB_FILE = os.path.join(DB_PATH, os.getenv("DB_FILE", ""))
 DB_PASS = os.getenv("DB_PASS")
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+MAX_RETRY = os.getenv("MAX_RETRY", 3)
 
 # Connection string for ODBC
 connection_string = (
@@ -46,6 +52,30 @@ logging.basicConfig(
     filename=LOG_FILE, level=LOG_LEVEL, format="%(asctime)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def create_db_finger_log():
+    """Buat database sqlite"""
+    try:
+        conn = sqlite3.connect(DATABASE_SQLITE)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payload TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                webhook_url TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                retry_count INTEGER NOT NULL DEFAULT 0
+            )
+        """
+        )
+        conn.commit()
+        conn.close()
+        logger.info("Tabel logs berhasil dibuat.")
+    except sqlite3.Error as e:
+        logger.error(f"Error creating SQLite table: {e}")
 
 
 def get_db_connection():
@@ -106,6 +136,23 @@ def send_to_telegram(message):
         logger.error(f"Error sending data to Telegram: {e}")
 
 
+def save_failed_webhook(payload, signature, webhook_url):
+    """Menyimpan data webhook yang gagal di kirim ke SQLite."""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(DATABASE_SQLITE)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO logs (payload, signature, webhook_url, timestamp, retry_count) VALUES (?, ?, ?, ?, ?)",
+            (payload, signature, webhook_url, timestamp, 0),
+        )
+        conn.commit()
+        conn.close()
+        logger.info("Data webhook yang gagal disimpan ke SQLite.")
+    except sqlite3.Error as e:
+        logger.error(f"Error menyimpan data gagal ke SQLite: {e}")
+
+
 def send_to_webhook(payload):
     """Sends fingerprint data to configured webhooks."""
 
@@ -127,6 +174,54 @@ def send_to_webhook(payload):
             logger.info(f"Data successfully sent to {url}")
         except requests.exceptions.RequestException as e:
             logger.error(f"Error sending data to {url}: {e}")
+            save_failed_webhook(payload, signature, url)
+
+
+def retry_send_to_webhook():
+    """Mengulang pengiriman data webhook yang gagal."""
+    try:
+        conn = sqlite3.connect(DATABASE_SQLITE)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT id, payload, signature, webhook_url, retry_count FROM logs WHERE retry_count < {MAX_RETRY}"
+        )
+        rows = cursor.fetchall()
+
+        for row in rows:
+            id, payload, signature, webhook_url, retry_count = row
+            logger.info(
+                f"Mengulang pengiriman ID {id} ke {webhook_url}, percobaan ke {retry_count+1}"
+            )
+
+            try:
+                response = requests.post(
+                    webhook_url,
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "Adms Server Nitgen/1.0(Adms Webhook Nitgen)",
+                        "Accept": "application/json",
+                        "X-Adms-Signature": signature,
+                    },
+                )
+                response.raise_for_status()
+                logger.info(f"Data berhasil dikirim ulang ke {webhook_url}")
+
+                # Jika pengiriman berhasil, hapus dari tabel logs
+                cursor.execute("DELETE FROM logs WHERE id = ?", (id,))
+                conn.commit()
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Retry gagal untuk data ID {id} ke {webhook_url}: {e}")
+                retry_count += 1
+                cursor.execute(
+                    "UPDATE logs SET retry_count = ? WHERE id = ?", (retry_count, id)
+                )
+                conn.commit()
+
+        conn.close()
+    except sqlite3.Error as e:
+        logger.error(f"Error saat mencoba mengulang webhook yang gagal: {e}")
 
 
 def get_new_fingerprint_data(last_checked_timestamp: datetime) -> datetime:
@@ -213,6 +308,9 @@ def read_mdb_file():
     try:
         while True:
             sleep(1)  # sleep 1 detik
+
+            retry_send_to_webhook()
+            sleep(60)  # Delay 60 detik untuk pengiriman ulang webhook
     except KeyboardInterrupt:
         logger.info("Service interrupted. Stopping observer.")
         observer.stop()
@@ -221,4 +319,5 @@ def read_mdb_file():
 
 
 if __name__ == "__main__":
+    create_db_finger_log()
     read_mdb_file()

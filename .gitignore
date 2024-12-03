@@ -3,3 +3,4 @@
 .env
 error.log
 timestamp.txt
+db/*
