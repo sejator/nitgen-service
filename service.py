@@ -1,5 +1,5 @@
 import os
-import time
+from time import sleep
 import json
 import pyodbc
 import requests
@@ -28,7 +28,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DB_PATH = os.getenv("DB_PATH", "")
 DB_FILE = os.path.join(DB_PATH, os.getenv("DB_FILE", ""))
 DB_PASS = os.getenv("DB_PASS")
-DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 # Connection string for ODBC
 connection_string = (
@@ -52,7 +52,8 @@ def get_db_connection():
     """Returns a new database connection."""
     try:
         conn = pyodbc.connect(connection_string)
-        return conn, conn.cursor()
+        cursor = conn.cursor()
+        return conn, cursor
     except pyodbc.Error as e:
         logger.error(f"Error connecting to database: {e}")
         raise
@@ -131,41 +132,42 @@ def send_to_webhook(payload):
 def get_new_fingerprint_data(last_checked_timestamp: datetime) -> datetime:
     """Fetches new fingerprint data from the database."""
     try:
-        conn, cursor = get_db_connection()
-        query = """
-            SELECT l.nodeid AS key, l.userid AS pin, l.logtime AS waktu, l.authresult AS status,
-            l.authtype AS verifikasi, l.functionno AS workcode FROM NGAC_LOG l
-            WHERE l.authresult = 0 AND l.logtime > ? ORDER BY l.logtime ASC
-        """
-        logger.info(f"Fetching data after: {last_checked_timestamp}")
-        cursor.execute(query, last_checked_timestamp)
-        rows = cursor.fetchall()
+        with pyodbc.connect(connection_string) as conn:
+            with conn.cursor() as cursor:
+                query = """
+                    SELECT l.nodeid AS key, l.userid AS pin, l.logtime AS waktu, l.authresult AS status,
+                    l.authtype AS verifikasi, l.functionno AS workcode, l.logindex, l.slogtime FROM NGAC_LOG l
+                    WHERE l.authresult = 0 AND l.slogtime > ? ORDER BY l.logtime ASC
+                """
+                logger.info(f"Fetching data after: {last_checked_timestamp}")
+                cursor.execute(query, last_checked_timestamp)
+                rows = cursor.fetchall()
 
-        if not rows:
-            logger.info("No new data found.")
-            conn.close()  # Close connection
-            return last_checked_timestamp
+                if not rows:
+                    logger.info("No new data found.")
+                    last_timestamp = datetime.now()
+                    save_last_checked_timestamp(last_timestamp)
+                    return last_timestamp
 
-        latest_timestamp = rows[-1].waktu
+                latest_timestamp = rows[-1].slogtime
 
-        for row in rows:
-            fingerprint_data = {
-                "key": row.key,
-                "pin": row.pin[:-5] if row.pin is not None else "0",
-                "waktu": row.waktu.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": row.status,
-                "verifikasi": row.verifikasi,
-                "workcode": int(row.workcode),
-            }
-            payload = json.dumps(
-                fingerprint_data, separators=(",", ":"), sort_keys=True
-            )
-            send_to_webhook(payload)
-            send_to_telegram(f"<b>WEBHOOK NITGEN</b>\n\n<pre>{payload}</pre>")
+                for row in rows:
+                    fingerprint_data = {
+                        "key": row.key,
+                        "pin": row.pin[:-5] if row.pin is not None else "0",
+                        "waktu": row.waktu.strftime("%Y-%m-%d %H:%M:%S"),
+                        "status": row.status,
+                        "verifikasi": row.verifikasi,
+                        "workcode": int(row.workcode),
+                    }
+                    payload = json.dumps(
+                        fingerprint_data, separators=(",", ":"), sort_keys=True
+                    )
+                    send_to_webhook(payload)
+                    send_to_telegram(f"<b>WEBHOOK NITGEN</b>\n\n<pre>{payload}</pre>")
 
-        save_last_checked_timestamp(latest_timestamp)
-        conn.close()  # Close connection
-        return latest_timestamp
+                save_last_checked_timestamp(latest_timestamp)
+                return latest_timestamp
 
     except Exception as e:
         logger.error(f"Error fetching fingerprint data: {e}")
@@ -175,19 +177,25 @@ def get_new_fingerprint_data(last_checked_timestamp: datetime) -> datetime:
 class MDBFileHandler(FileSystemEventHandler):
     """Handles file system events for .mdb file modifications."""
 
+    def __init__(self, last_checked_timestamp):
+        self.last_checked_timestamp = last_checked_timestamp
+
     def on_modified(self, event):
         if str(event.src_path).endswith(".mdb"):
             logger.info(f".mdb file modified: {event.src_path}")
-            global last_checked_timestamp
-            last_checked_timestamp = get_new_fingerprint_data(last_checked_timestamp)
+            self.last_checked_timestamp = get_new_fingerprint_data(
+                self.last_checked_timestamp
+            )
 
 
 def read_mdb_file():
     """Monitors the .mdb file for changes."""
-    event_handler = MDBFileHandler()
+    last_checked_timestamp = read_last_checked_timestamp()
+    event_handler = MDBFileHandler(last_checked_timestamp)
     observer = Observer()
     observer.schedule(event_handler, DB_PATH, recursive=False)
     observer.start()
+
     service = json.dumps(
         {
             "service": "Nitgen Webhook Windows Service Auto Run",
@@ -204,12 +212,13 @@ def read_mdb_file():
 
     try:
         while True:
-            time.sleep(1)  # sleep 1 detik
+            sleep(1)  # sleep 1 detik
     except KeyboardInterrupt:
+        logger.info("Service interrupted. Stopping observer.")
         observer.stop()
-    observer.join()
+    finally:
+        observer.join()
 
 
 if __name__ == "__main__":
-    last_checked_timestamp = read_last_checked_timestamp()
     read_mdb_file()
