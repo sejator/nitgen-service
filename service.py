@@ -259,7 +259,10 @@ def get_new_fingerprint_data(last_checked_timestamp: datetime) -> datetime:
                         fingerprint_data, separators=(",", ":"), sort_keys=True
                     )
                     send_to_webhook(payload)
-                    send_to_telegram(f"<b>WEBHOOK NITGEN</b>\n\n<pre>{payload}</pre>")
+                    if DEBUG:
+                        send_to_telegram(
+                            f"<b>WEBHOOK NITGEN</b>\n\n<pre>{payload}</pre>"
+                        )
 
                 save_last_checked_timestamp(latest_timestamp)
                 return latest_timestamp
