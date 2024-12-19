@@ -39,7 +39,7 @@ Di dalam jendela **Create Task**, atur pengaturan seperti berikut:
 - Klik **New...** untuk menambahkan action.
 - Pilih **Start a program**.
 - Di kolom **Program/script**, masukkan path ke Python executable (misalnya: `C:\Python39\python.exe`).
-- Di kolom **Add arguments (optional)**, masukkan path lengkap ke skrip Python (misalnya `C:\path\to\your\script.py`).
+- Di kolom **Add arguments (optional)**, masukkan path lengkap ke skrip Python (misalnya `C:\path\to\your\main.py`).
 - Di kolom **Start in (optional)**, masukkan path ke skrip Python (misalnya `C:\path\to\your`).
 
 **Tab Settings:**

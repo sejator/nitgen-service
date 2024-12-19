@@ -4,3 +4,4 @@
 error.log
 timestamp.txt
 db/*
+__pycache__/
