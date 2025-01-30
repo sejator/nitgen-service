@@ -10,8 +10,10 @@ from src.webhook import WebhookSender
 from src.database import DatabaseConnection
 from logging.handlers import RotatingFileHandler
 from src.config import MDB_PATH, DEBUG
-from src.mdb_file_handler import MDBFileHandler
+# from src.mdb_file_handler import MDBFileHandler
 from watchdog.observers import Observer
+from src.fingerprint_handler import FingerprintHandler
+from src.timestamp import TimestampManager
 
 # Set up logging with rotation
 LOG_FILE = None if DEBUG else "error.log"
@@ -36,23 +38,35 @@ def retry_send_webhook():
             WebhookSender.retry_send_to_webhook()
         except Exception as e:
             logger.error(f"Error sending webhook: {e}")
-            sleep(60)
+            sleep(180)
         sleep(60)
 
 
 def read_mdb_file():
-    event_handler = MDBFileHandler()
-    observer = Observer()
-    observer.schedule(event_handler, MDB_PATH, recursive=False)
-    observer.start()
+    # menggunakan metode event perubahan file
+    # event_handler = MDBFileHandler()
+    # observer = Observer()
+    # observer.schedule(event_handler, MDB_PATH, recursive=False)
+    # observer.start()
 
-    try:
-        observer.join()
-    except Exception as e:
-        logger.error(f"Error in MDB file reading loop: {e}")
-    finally:
-        observer.stop()
-        observer.join()
+    # try:
+    #     observer.join()
+    # except Exception as e:
+    #     logger.error(f"Error in MDB file reading loop: {e}")
+    # finally:
+    #     observer.stop()
+    #     observer.join()
+
+    # menggunakan metode pooling
+    while not stop_event.is_set():
+        try:
+            last_timestamp = TimestampManager.read_last_timestamp()
+            FingerprintHandler.find_pooling(last_timestamp)
+        except Exception as e:
+            logger.error(f"Error pooling: {e}")
+            sleep(180)
+        logger.info("Delay 20 detik...")
+        sleep(20)
 
 
 def log_service_info():

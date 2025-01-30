@@ -90,7 +90,7 @@ class WebhookSender:
             conn = DatabaseConnection.get_sqlite_connection()
             cursor = conn.cursor()
             cursor.execute(
-                f"SELECT id, payload, signature, webhook_url, retry_count FROM logs WHERE retry_count < {MAX_RETRY} LIMIT 5"
+                f"SELECT id, payload, signature, webhook_url, retry_count FROM logs WHERE retry_count < {MAX_RETRY} LIMIT 30"
             )
             rows = cursor.fetchall()
 
